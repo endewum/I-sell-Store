@@ -14,6 +14,7 @@ import math
 import html
 import asyncio
 import logging
+import ssl
 from urllib.parse import urlparse
 from decimal import Decimal
 from typing import Optional, List, Dict, Any, Tuple
@@ -63,7 +64,7 @@ if DATABASE_URL:
     MYSQL_PORT = parsed_db.port or 3306
     MYSQL_USER = parsed_db.username or "root"
     MYSQL_PASSWORD = parsed_db.password or ""
-    MYSQL_DATABASE = parsed_db.path.lstrip("/") or "isell_store"
+    MYSQL_DATABASE = parsed_db.path.lstrip("/").split("?")[0] or "isell_store"
 else:
     MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
     MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
@@ -106,38 +107,47 @@ CATALOG_SEEDS = [
 # =============================================================================
 
 async def init_db():
-    """Connect to MySQL, create tables with migrations, and seed initial data."""
+    """Connect to MySQL using local or cloud credentials and initialize the schema."""
     global db_pool
     logger.info("Connecting to MySQL at %s:%s (DB: %s)...", MYSQL_HOST, MYSQL_PORT, MYSQL_DATABASE)
 
-    # 1. Attempt to ensure database exists (handled gracefully if cloud user lacks global CREATE DB privilege)
-    try:
-        conn = await aiomysql.connect(
-            host=MYSQL_HOST,
-            port=MYSQL_PORT,
-            user=MYSQL_USER,
-            password=MYSQL_PASSWORD,
-            autocommit=True
-        )
-        async with conn.cursor() as cur:
-            await cur.execute(
-                f"CREATE DATABASE IF NOT EXISTS `{MYSQL_DATABASE}` "
-                f"CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-            )
-        conn.close()
-    except Exception as e:
-        logger.warning("Notice on CREATE DATABASE: %s (Continuing connection)", e)
+    # Enable encrypted transport for remote database providers.
+    ssl_ctx = None
+    if MYSQL_HOST not in ("localhost", "127.0.0.1"):
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
 
-    # 2. Establish connection pool
+    # Local MySQL may allow database creation; cloud providers usually do not.
+    if MYSQL_HOST in ("localhost", "127.0.0.1"):
+        try:
+            conn = await aiomysql.connect(
+                host=MYSQL_HOST,
+                port=MYSQL_PORT,
+                user=MYSQL_USER,
+                password=MYSQL_PASSWORD,
+                autocommit=True
+            )
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    f"CREATE DATABASE IF NOT EXISTS `{MYSQL_DATABASE}` "
+                    f"CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+                )
+            conn.close()
+        except Exception as e:
+            logger.warning("CREATE DATABASE notice: %s", e)
+
+    # Establish the cloud-compatible connection pool.
     db_pool = await aiomysql.create_pool(
         host=MYSQL_HOST,
         port=MYSQL_PORT,
         user=MYSQL_USER,
         password=MYSQL_PASSWORD,
         db=MYSQL_DATABASE,
+        ssl=ssl_ctx,
         autocommit=True,
-        minsize=2,
-        maxsize=15,
+        minsize=1,
+        maxsize=10,
         charset="utf8mb4"
     )
 
