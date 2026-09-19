@@ -1,0 +1,98 @@
+CREATE DATABASE IF NOT EXISTS isell_store CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE isell_store;
+
+CREATE TABLE IF NOT EXISTS settings (
+    `key` VARCHAR(64) PRIMARY KEY,
+    `value` TEXT NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS users (
+    id BIGINT PRIMARY KEY,
+    username VARCHAR(64) NULL,
+    first_name VARCHAR(128) NULL,
+    last_name VARCHAR(128) NULL,
+    is_admin TINYINT(1) DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(128) NOT NULL,
+    emoji VARCHAR(16) DEFAULT '📦',
+    description TEXT NULL,
+    sort_order INT DEFAULT 0,
+    is_active TINYINT(1) DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_products_active (is_active, sort_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS plans (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    product_id INT NOT NULL,
+    name VARCHAR(128) NOT NULL,
+    description TEXT NULL,
+    price DECIMAL(10, 2) NOT NULL,
+    duration_days INT DEFAULT 30,
+    is_active TINYINT(1) DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+    INDEX idx_plans_product (product_id, is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS inventory (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    plan_id INT NOT NULL,
+    item_type ENUM('CODE', 'ACCOUNT', 'LICENSE', 'MANUAL') DEFAULT 'CODE',
+    content TEXT NOT NULL,
+    status ENUM('AVAILABLE', 'RESERVED', 'SOLD', 'DISABLED') DEFAULT 'AVAILABLE',
+    reserved_by_order_id BIGINT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
+    INDEX idx_inventory_status (plan_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS orders (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    plan_id INT NOT NULL,
+    product_id INT NOT NULL,
+    amount DECIMAL(10, 2) NOT NULL,
+    currency VARCHAR(16) DEFAULT 'USDT',
+    status ENUM('PENDING_PAYMENT', 'PAYMENT_SUBMITTED', 'PAYMENT_REJECTED', 'PAID', 'PROCESSING', 'READY', 'DELIVERED', 'CANCELLED', 'REFUNDED') DEFAULT 'PENDING_PAYMENT',
+    payment_method VARCHAR(32) NULL,
+    tx_id VARCHAR(255) NULL,
+    proof_file_id VARCHAR(255) NULL,
+    delivery_data TEXT NULL,
+    fulfilled_by BIGINT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (plan_id) REFERENCES plans(id),
+    FOREIGN KEY (product_id) REFERENCES products(id),
+    INDEX idx_orders_user (user_id),
+    INDEX idx_orders_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS stock_notifications (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    plan_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_user_plan (user_id, plan_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS admin_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    admin_id BIGINT NOT NULL,
+    action VARCHAR(64) NOT NULL,
+    details TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_admin_logs (admin_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
